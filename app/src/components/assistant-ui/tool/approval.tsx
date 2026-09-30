@@ -26,6 +26,10 @@ import {
   clearApprovalRequest,
   registerApprovalInlineAnchor
 } from '@/store/prompts'
+import {
+  clearApprovalServerRequestId,
+  respondToApprovalServerRequest
+} from '@/lib/approval-server-request'
 
 import type { ToolPart } from './fallback-model'
 
@@ -129,10 +133,16 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
       setSubmitting(choice)
 
       try {
-        await gateway.request<{ resolved?: boolean }>('approval.respond', {
-          choice,
-          session_id: request.sessionId ?? undefined
-        })
+        // Preferred: JSON-RPC response to the server→client approval request.
+        // Fall back to legacy approval.respond for older gateways / event path.
+        if (!respondToApprovalServerRequest(request.sessionId, choice)) {
+          await gateway.request<{ resolved?: boolean }>('approval.respond', {
+            choice,
+            session_id: request.sessionId ?? undefined
+          })
+        }
+
+        clearApprovalServerRequestId(request.sessionId)
         triggerHaptic(choice === 'deny' ? 'cancel' : 'submit')
         clearApprovalRequest(request.sessionId)
       } catch (error) {

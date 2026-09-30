@@ -12,6 +12,7 @@ import { gatewayEventRequiresSessionId } from '@/lib/gateway-events'
 import { triggerHaptic } from '@/lib/haptics'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
 import { clearClarifyRequest, setClarifyRequest } from '@/store/clarify'
+import { hasOpenServerRequest } from '@/store/server-requests'
 import { setSessionCompacting } from '@/store/compaction'
 import { refreshBackgroundProcesses } from '@/store/composer-status'
 import { $gateway } from '@/store/gateway'
@@ -426,10 +427,14 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         // indefinitely and re-focusing it could never recover (the event is
         // gone). Parking it per-session lets the user answer once they switch
         // over; the inline ClarifyTool reads the active session's entry.
+        //
+        // Hermes ≥0.21 delivers clarify as a server→client request instead; if
+        // that path already parked this id, skip the legacy event so the card
+        // does not look duplicated.
         const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
         const question = typeof payload?.question === 'string' ? payload.question : ''
 
-        if (requestId && question) {
+        if (requestId && question && !hasOpenServerRequest(requestId)) {
           setClarifyRequest({
             requestId,
             question,

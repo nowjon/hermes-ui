@@ -22,6 +22,8 @@ import { triggerHaptic } from '@/lib/haptics'
 import { Loader2, MessageQuestion } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { $clarifyRequest, clearClarifyRequest } from '@/store/clarify'
+import { clearClarifyBatchQids, getClarifyBatchQids } from '@/lib/clarify-server-request'
+import { respondToServerRequest } from '@/store/server-requests'
 import { $gateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
 
@@ -119,16 +121,11 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
   const fromArgs = useMemo(() => readClarifyArgs(args), [args])
 
   const matchingRequest = useMemo(() => {
-    if (!request) {
-      return null
-    }
-
-    if (fromArgs.question && request.question && fromArgs.question !== request.question) {
-      return null
-    }
-
+    // Prefer the parked server→client request for this session. Do not require
+    // tool.args.question === request.question — batch wire shape frequently
+    // differs and that mismatch used to hide the answer UI entirely.
     return request
-  }, [fromArgs.question, request])
+  }, [request])
 
   const question = fromArgs.question || matchingRequest?.question || ''
 
@@ -169,10 +166,21 @@ function ClarifyToolPending({ args }: ToolCallMessagePartProps) {
       setSubmitting(true)
 
       try {
-        await gateway.request<{ ok?: boolean }>('clarify.respond', {
-          request_id: matchingRequest.requestId,
-          answer
-        })
+        const batchQids = getClarifyBatchQids(matchingRequest.requestId)
+        const result = batchQids?.length
+          ? { answers: Object.fromEntries(batchQids.map(qid => [qid, answer])) }
+          : { answer }
+
+        // Preferred: JSON-RPC response to the server→client clarify request.
+        // Fall back to legacy clarify.respond for older gateways.
+        if (!respondToServerRequest(matchingRequest.requestId, result)) {
+          await gateway.request<{ ok?: boolean }>('clarify.respond', {
+            request_id: matchingRequest.requestId,
+            answer
+          })
+        }
+
+        clearClarifyBatchQids(matchingRequest.requestId)
         triggerHaptic('submit')
         clearClarifyRequest(matchingRequest.requestId, matchingRequest.sessionId)
         // The matching tool.complete will land shortly after, swapping this

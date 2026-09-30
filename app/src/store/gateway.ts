@@ -1,4 +1,9 @@
-import { type ConnectionState, type GatewayEvent, resolveGatewayWsUrl } from '@hermes/shared'
+import {
+  type ConnectionState,
+  type GatewayEvent,
+  type ServerRequest,
+  resolveGatewayWsUrl
+} from '@hermes/shared'
 import { atom } from 'nanostores'
 
 import { HermesGateway } from '@/hermes'
@@ -27,6 +32,8 @@ export const $gateway = atom<HermesGateway | null>(null)
 
 interface RegistryConfig {
   onEvent: (event: GatewayEvent) => void
+  /** Server→client requests (clarify / approval / …). Return false to decline. */
+  onServerRequest?: (request: ServerRequest & { profile?: string }) => boolean | void
 }
 
 let config: RegistryConfig | null = null
@@ -49,6 +56,7 @@ interface Secondary {
   profile: string
   gateway: HermesGateway
   offEvent: () => void
+  offRequest: () => void
   offState: () => void
   reconnectTimer: ReturnType<typeof setTimeout> | null
   reconnectAttempt: number
@@ -157,6 +165,7 @@ function createSecondary(profile: string): Secondary {
     profile,
     gateway,
     offEvent: () => {},
+    offRequest: () => {},
     offState: () => {},
     reconnectTimer: null,
     reconnectAttempt: 0,
@@ -165,6 +174,9 @@ function createSecondary(profile: string): Secondary {
   }
 
   entry.offEvent = gateway.onEvent(event => config?.onEvent({ ...event, profile }))
+  entry.offRequest = gateway.onRequest(request => {
+    return config?.onServerRequest?.({ ...request, profile }) !== false
+  })
   entry.offState = gateway.onState(state => {
     reportGatewayState(profile, state)
 
@@ -298,6 +310,7 @@ export function retireProfileGateway(profile: string): void {
   entry.wantOpen = false
   clearTimer(entry)
   entry.offEvent()
+  entry.offRequest()
   entry.offState()
   entry.gateway.close()
   secondaries.delete(key)
@@ -312,6 +325,7 @@ export function pruneSecondaryGateways(keep: Set<string>): void {
     entry.wantOpen = false
     clearTimer(entry)
     entry.offEvent()
+    entry.offRequest()
     entry.offState()
     entry.gateway.close()
     secondaries.delete(key)
@@ -323,6 +337,7 @@ export function closeSecondaryGateways(): void {
     entry.wantOpen = false
     clearTimer(entry)
     entry.offEvent()
+    entry.offRequest()
     entry.offState()
     entry.gateway.close()
   }

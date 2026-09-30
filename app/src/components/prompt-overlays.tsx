@@ -4,6 +4,7 @@ import { useStore } from '@nanostores/react'
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 
 import { PendingApprovalFallback } from '@/components/assistant-ui/tool/approval'
+import { PendingClarifyFallback } from '@/components/pending-clarify-fallback'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -228,6 +229,7 @@ export function PromptOverlays() {
   return (
     <>
       <PendingApprovalFallback />
+      <PendingClarifyFallback />
       <SudoDialog />
       <SecretDialog />
     </>

@@ -24,8 +24,8 @@ Keep local modifications minimal and centralized in `src/web-bridge/` so upstrea
 This is the running watermark for incremental upstream syncs.
 When you sync, always diff upstream `apps/desktop/src` + `apps/shared/src` from the **Last synced commit** below forward, port the web-applicable changes, then bump the watermark.
 
-- **Last synced upstream commit:** `f0aae14c684a84cd1eeca88339238406c30f3ed7` (2026-07-20).
-- **Last sync date:** 2026-07-20.
+- **Last synced upstream commit:** `653bc4f288fc00db362c1082a3b652542314fbef` (2026-09-30, hermes-agent v0.21.5+4913 / 2026.9.24).
+- **Last sync date:** 2026-09-30.
 - **Baseline before this sync:** `56a8e81` (the original extraction).
 
 ### 2026-07-20 - partial sync of the 2026-06-29 -> 2026-07-20 window (merged desktop PRs)
@@ -65,3 +65,24 @@ The general watermark above is unchanged - only the files below track `v2026.8.1
 **Seams cut into existing files:** composer submit middleware (`runComposerMiddleware` in `app/chat/composer/index.tsx`), contributed `@` completion sources (`hooks/use-at-completions.ts`), contributed palette rows (`app/command-palette/index.tsx`), plugin boot + right panes (`app/desktop-controller.tsx`), sidebar tab strip (`app/chat/sidebar/index.tsx`), `pluginRest` (`hermes.ts`), plugin i18n re-exports (`i18n/index.ts`).
 
 **Still deferred (on top of the PR2 list):** the tree layout engine, `Settings > Plugins` page (plugins can only be toggled via the persisted `hermes.desktop.pluginDecisions.v2` storage key for now), `contrib/runtime-loader.ts`, `store/composer-actions` + composer micro-actions, `blobatarSvg` avatars (not present upstream at this tag either - the plugin's classic-shapes fallback renders).
+
+
+### 2026-09-30 - protocol + reconnect/clarify sync from hermes-agent `653bc4f2`
+
+Forked to `nowjon/hermes-ui`. Synced the shared JSON-RPC protocol stack from
+`hermes-agent` `apps/shared` at `653bc4f2` so hermesweb natively supports
+server→client requests (`clarify` / `approval` / `open_requests` replay),
+heartbeats, and reconnect backoff helpers.
+
+**Ported into `shared/`:** `json-rpc-channel.ts`, `json-rpc-gateway.ts`,
+`gateway-events.ts`, `gateway-contract.generated.ts`, `reconnect-backoff.ts`,
+`websocket-url.ts` (string + structured ticket mint results).
+
+**Web-only fixes baked into this fork (also kept as ansible overlays for
+safety):** stuck-handshake remint on `connect()`, `pageshow`/`focus` wake
+reconnects, floating `PendingClarifyFallback`, relaxed clarify question match,
+batch clarify correlation, and JSON-RPC respond wiring for clarify/approval.
+
+**Still deferred (UPSTREAM PR2 list unchanged):** tree layout engine, full
+contrib/runtime-loader, billing, `@assistant-ui` major bump, desktop-only
+Electron surfaces.

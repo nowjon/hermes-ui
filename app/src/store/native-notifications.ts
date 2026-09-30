@@ -3,6 +3,10 @@ import { atom } from 'nanostores'
 import { persistString, storedString } from '@/lib/storage'
 
 import { $gateway } from './gateway'
+import {
+  clearApprovalServerRequestId,
+  respondToApprovalServerRequest
+} from '@/lib/approval-server-request'
 import { clearApprovalRequest } from './prompts'
 import { $activeSessionId } from './session'
 
@@ -193,7 +197,11 @@ export async function respondToApprovalAction(sessionId: null | string, actionId
   }
 
   try {
-    await gateway.request('approval.respond', { choice, session_id: sessionId ?? undefined })
+    if (!respondToApprovalServerRequest(sessionId, choice)) {
+      await gateway.request('approval.respond', { choice, session_id: sessionId ?? undefined })
+    }
+
+    clearApprovalServerRequestId(sessionId)
     clearApprovalRequest(sessionId)
   } catch {
     // Leave the prompt parked so the user can still resolve it in-app.

@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react'
 
 import type { HermesConnection } from '@/global'
 import { HermesGateway } from '@/hermes'
+import { handleApprovalServerRequest } from '@/lib/approval-server-request'
+import { handleClarifyServerRequest } from '@/lib/clarify-server-request'
 import { translateNow } from '@/i18n'
 import { desktopDefaultCwd } from '@/lib/desktop-fs'
 import {
@@ -243,7 +245,20 @@ export function useGatewayBoot({
     callbacksRef.current.onGatewayReady(gateway)
     setPrimaryGateway(gateway, normalizeProfileKey($activeGatewayProfile.get()))
     // Secondary (background-profile) sockets funnel into the same handler.
-    configureGatewayRegistry({ onEvent: event => callbacksRef.current.handleGatewayEvent(event) })
+    configureGatewayRegistry({
+      onEvent: event => callbacksRef.current.handleGatewayEvent(event),
+      onServerRequest: request => {
+        if (handleClarifyServerRequest(request)) {
+          return
+        }
+
+        if (handleApprovalServerRequest(request)) {
+          return
+        }
+
+        return false
+      }
+    })
 
     const offState = gateway.onState(st => {
       // Mirror to the composer only while the primary is the active profile —
@@ -272,6 +287,17 @@ export function useGatewayBoot({
     })
 
     const offEvent = gateway.onEvent(event => callbacksRef.current.handleGatewayEvent(event))
+    const offRequest = gateway.onRequest(request => {
+      if (handleClarifyServerRequest(request)) {
+        return true
+      }
+
+      if (handleApprovalServerRequest(request)) {
+        return true
+      }
+
+      return false
+    })
 
     // Wake signals: power resume (macOS/Windows), network coming back, and the
     // window regaining focus/visibility. Each nudges an immediate reconnect.
@@ -285,8 +311,19 @@ export function useGatewayBoot({
       }
     }
 
+    const onFocus = () => reconnectNow()
+
+    const onPageShow = (event: PageTransitionEvent) => {
+      // bfcache restore freezes timers and usually kills the WS; remint + redial.
+      if (event.persisted || document.visibilityState === 'visible') {
+        reconnectNow()
+      }
+    }
+
     window.addEventListener('online', onOnline)
     document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('pageshow', onPageShow)
 
     // Keep live pool backends alive while this window is open (the main process
     // can't observe the direct renderer↔backend WS). No-op for the primary.
@@ -424,9 +461,12 @@ export function useGatewayBoot({
       offActiveProfile()
       window.removeEventListener('online', onOnline)
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('pageshow', onPageShow)
       offPowerResume?.()
       offState()
       offEvent()
+      offRequest()
       offExit()
       offWindowState?.()
       offBootProgress()

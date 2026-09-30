@@ -300,9 +300,38 @@ function collectToolMatchValues(query: string, context: string, preview: string)
   return [...new Set([query, context, preview].map(normalizeToolMatchValue).filter(Boolean))]
 }
 
+/**
+ * Batch-clarify correlation key: wire payloads often have no top-level
+ * `question`, only `questions[]`. Without joining those texts, tool.generating
+ * + tool.start (empty context) never overlap and the clarify card mounts twice.
+ * A NUL separator cannot appear in real question text, so batch keys cannot
+ * collide with a single-question key.
+ */
+function batchClarifyMatchValue(questions: unknown): string {
+  if (!Array.isArray(questions)) {
+    return ''
+  }
+
+  const texts = questions
+    .map(entry => {
+      if (!entry || typeof entry !== 'object') {
+        return ''
+      }
+
+      const question = (entry as Record<string, unknown>).question
+
+      return typeof question === 'string' ? question.trim() : ''
+    })
+    .filter(Boolean)
+
+  return texts.length > 0 ? texts.join('\u0000') : ''
+}
+
 function toolPayloadMatchValues(payload: GatewayEventPayload | undefined): string[] {
   const payloadArgs = liveToolArgs(payload)
-  const query = firstStringField(payloadArgs, ['search_term', 'query'])
+  const query =
+    firstStringField(payloadArgs, ['search_term', 'query', 'question']) ||
+    batchClarifyMatchValue(payloadArgs.questions)
   const context = typeof payload?.context === 'string' ? payload.context.trim() : ''
   const preview = typeof payload?.preview === 'string' ? payload.preview.trim() : ''
 
@@ -315,7 +344,8 @@ function toolPartMatchValues(part: ChatMessagePart): string[] {
   }
 
   const args = part.args as Record<string, unknown>
-  const query = firstStringField(args, ['search_term', 'query'])
+  const query =
+    firstStringField(args, ['search_term', 'query', 'question']) || batchClarifyMatchValue(args.questions)
   const context = typeof args.context === 'string' ? args.context.trim() : ''
   const preview = typeof args.preview === 'string' ? args.preview.trim() : ''
 
