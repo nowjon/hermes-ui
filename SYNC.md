@@ -36,3 +36,12 @@ gh workflow run sync-upstream.yml --repo nowjon/hermes-ui
 Or: GitHub → Actions → “Sync hermes-agent shared” → Run workflow.
 
 Permissions: `contents: write`, `pull-requests: write`, `issues: write`.
+
+## Repo settings required
+
+GitHub → Settings → Actions → General → Workflow permissions:
+
+- **Read and write permissions**
+- **Allow GitHub Actions to create and approve pull requests** (required for \`gh pr create\`)
+
+Without the second checkbox, the job can push a sync branch but fails at PR creation.
