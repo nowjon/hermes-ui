@@ -27,7 +27,7 @@ Keep local modifications minimal and centralized in `src/web-bridge/` so upstrea
 This is the running watermark for incremental upstream syncs.
 When you sync, always diff upstream `apps/desktop/src` + `apps/shared/src` from the **Last synced commit** below forward, port the web-applicable changes, then bump the watermark.
 
-- **Last synced upstream commit:** `653bc4f288fc00db362c1082a3b652542314fbef` (2026-09-30, hermes-agent v0.21.5+4913 / 2026.9.24).
+- **Last synced upstream commit:** `7239625ae1b786827c952a8ace41fa6fd7f2eec5` (2026-09-30, hermes-agent v0.21.5+4913 / 2026.9.24).
 - **Last sync date:** 2026-09-30.
 - **Baseline before this sync:** `56a8e81` (the original extraction).
 
@@ -89,3 +89,9 @@ batch clarify correlation, and JSON-RPC respond wiring for clarify/approval.
 **Still deferred (UPSTREAM PR2 list unchanged):** tree layout engine, full
 contrib/runtime-loader, billing, `@assistant-ui` major bump, desktop-only
 Electron surfaces.
+
+### 2026-09-30 - automated shared protocol sync from hermes-agent `7239625a`
+
+CI copied protocol files from [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent) `apps/shared` at `7239625ae1b786827c952a8ace41fa6fd7f2eec5` into `shared/src/`, kept web-trimmed `shared/src/index.ts`, and re-applied web patches (stuck-handshake remint + open event-name typing).
+
+**`apps/desktop` / `app/` UI sync remains manual** (see deferred list above).
