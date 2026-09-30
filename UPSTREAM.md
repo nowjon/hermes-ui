@@ -16,6 +16,9 @@
 
 ## Re-syncing with upstream
 
+Automated shared-protocol sync from `NousResearch/hermes-agent` is described in [`SYNC.md`](SYNC.md)
+(`.github/workflows/sync-upstream.yml`). Full `apps/desktop` → `app/` ports remain manual.
+
 Diff `hermes-agent/apps/desktop/src` against `app/src` (and `apps/shared/src` against `shared/src`) from the recorded commit forward, and re-apply upstream changes.
 Keep local modifications minimal and centralized in `src/web-bridge/` so upstream diffs stay clean.
 

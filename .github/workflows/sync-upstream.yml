@@ -1,0 +1,42 @@
+name: Sync hermes-agent shared
+
+# Detect drift from NousResearch/hermes-agent (apps/shared protocol sources)
+# against the watermark in UPSTREAM.md, then open an idempotent PR.
+# Full apps/desktop UI sync remains manual — see SYNC.md / UPSTREAM.md.
+
+on:
+  schedule:
+    # Mondays 14:00 UTC
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: sync-hermes-agent-shared
+  cancel-in-progress: false
+
+jobs:
+  sync-hermes-shared:
+    name: Sync hermes-agent shared protocol
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Detect shared drift and open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HERMES_AGENT_REPO: https://github.com/NousResearch/hermes-agent.git
+        run: bash scripts/sync-hermes-shared.sh
