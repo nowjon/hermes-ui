@@ -42,6 +42,6 @@ Permissions: `contents: write`, `pull-requests: write`, `issues: write`.
 GitHub → Settings → Actions → General → Workflow permissions:
 
 - **Read and write permissions**
-- **Allow GitHub Actions to create and approve pull requests** (required for \`gh pr create\`)
+- **Allow GitHub Actions to create and approve pull requests** (required for `gh pr create`)
 
 Without the second checkbox, the job can push a sync branch but fails at PR creation.
