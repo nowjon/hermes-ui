@@ -27,8 +27,8 @@ Keep local modifications minimal and centralized in `src/web-bridge/` so upstrea
 This is the running watermark for incremental upstream syncs.
 When you sync, always diff upstream `apps/desktop/src` + `apps/shared/src` from the **Last synced commit** below forward, port the web-applicable changes, then bump the watermark.
 
-- **Last synced upstream commit:** `7239625ae1b786827c952a8ace41fa6fd7f2eec5` (2026-09-30, hermes-agent v0.21.5+4913 / 2026.9.24).
-- **Last sync date:** 2026-09-30.
+- **Last synced upstream commit:** `15ab47a6b92643cdd75a081f4784412b16c19cc5` (2026-09-30, hermes-agent v0.21.5+4913 / 2026.9.24).
+- **Last sync date:** 2026-10-05.
 - **Baseline before this sync:** `56a8e81` (the original extraction).
 
 ### 2026-07-20 - partial sync of the 2026-06-29 -> 2026-07-20 window (merged desktop PRs)
@@ -93,5 +93,11 @@ Electron surfaces.
 ### 2026-09-30 - automated shared protocol sync from hermes-agent `7239625a`
 
 CI copied protocol files from [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent) `apps/shared` at `7239625ae1b786827c952a8ace41fa6fd7f2eec5` into `shared/src/`, kept web-trimmed `shared/src/index.ts`, and re-applied web patches (stuck-handshake remint + open event-name typing).
+
+**`apps/desktop` / `app/` UI sync remains manual** (see deferred list above).
+
+### 2026-10-05 - automated shared protocol sync from hermes-agent `15ab47a6`
+
+CI copied protocol files from [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent) `apps/shared` at `15ab47a6b92643cdd75a081f4784412b16c19cc5` into `shared/src/`, kept web-trimmed `shared/src/index.ts`, and re-applied web patches (stuck-handshake remint + open event-name typing).
 
 **`apps/desktop` / `app/` UI sync remains manual** (see deferred list above).
