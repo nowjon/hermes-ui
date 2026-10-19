@@ -106,7 +106,10 @@ export function SharedMetricsConsentDialog({ enabled, profile, requestGateway }:
     setSaving(true)
 
     try {
-      await answerSharedMetricsOffer(scopedRequest, choice)
+      await answerSharedMetricsOffer(scopedRequest, choice, {
+        focusedProfile: profile,
+        mirrorFromGateway: requestGateway
+      })
     } catch (err) {
       notifyError(err, copy.saveFailed)
     } finally {
