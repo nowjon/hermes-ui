@@ -167,7 +167,6 @@ describe('IncrementalExternalStoreThreadRuntimeCore adapter swap notifications',
 
     expect(depth).toBe(0)
   })
-})
 
   it('isRunning + user-tail: identical adapters stay silent after the first apply', () => {
     const user = fromThreadMessageLike(
@@ -220,3 +219,44 @@ describe('IncrementalExternalStoreThreadRuntimeCore adapter swap notifications',
     expect(depth).toBeLessThanOrEqual(1)
   })
 
+  it('isRunning + user-tail: reminted ThreadMessage objects (same ids) must not recurse unboundedly', () => {
+    // Live hermesweb path: the session store rebuilds ChatMessage row objects, so
+    // useRuntimeMessageRepository's WeakMap misses and each adapter swap carries
+    // NEW ThreadMessage instances with the SAME ids. Identity-only equality is
+    // false; shape equality must keep the optimistic placeholder silent.
+    const core = new IncrementalExternalStoreRuntimeCore(
+      adapterWith(
+        repositoryOf([fromThreadMessageLike({ role: 'user', content: [{ type: 'text', text: 'hi' }] }, 'u1', STATUS)]),
+        { isRunning: true }
+      )
+    )
+    const thread = core.threads.getMainThreadRuntimeCore()
+
+    let depth = 0
+    thread.subscribe(() => {
+      depth += 1
+
+      if (depth > 25) {
+        throw new Error('Maximum update depth exceeded (simulated): reminted ThreadMessage identity churn')
+      }
+
+      core.setAdapter(
+        adapterWith(
+          repositoryOf([
+            fromThreadMessageLike({ role: 'user', content: [{ type: 'text', text: 'hi' }] }, 'u1', STATUS)
+          ]),
+          { isRunning: true }
+        )
+      )
+    })
+
+    core.setAdapter(
+      adapterWith(
+        repositoryOf([fromThreadMessageLike({ role: 'user', content: [{ type: 'text', text: 'hi' }] }, 'u1', STATUS)]),
+        { isRunning: true }
+      )
+    )
+
+    expect(depth).toBeLessThanOrEqual(1)
+  })
+})
