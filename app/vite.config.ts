@@ -386,11 +386,16 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@/debug/dev-only': path.resolve(__dirname, './src/debug/dev-only.noop.ts'),
       '@': path.resolve(__dirname, './src'),
       '@hermes/plugin-sdk': path.resolve(__dirname, './src/sdk/index.ts'),
-      '@hermes/shared': path.resolve(__dirname, '../shared/src')
+      '@hermes/shared/billing': path.resolve(__dirname, '../shared/src/billing-types.ts'),
+      '@hermes/shared/color': path.resolve(__dirname, '../shared/src/color.ts'),
+      '@hermes/shared': path.resolve(__dirname, '../shared/src'),
+      'driver.js/dist/driver.js.iife.js?raw': `${path.resolve(__dirname, 'node_modules/driver.js/dist/driver.js.iife.js')}?raw`,
+      'driver.js/dist/driver.js.iife.js': path.resolve(__dirname, 'node_modules/driver.js/dist/driver.js.iife.js')
     },
-    dedupe: ['react', 'react-dom']
+    dedupe: ['react', 'react-dom', 'react-router', '@tanstack/react-query']
   },
   server: {
     // /api, /auth, /login (+ the /api/ws upgrade) are handled by

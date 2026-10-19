@@ -85,14 +85,10 @@ if name == "json-rpc-gateway.ts":
     )
     if early in text:
         text = text.replace(early, remint, 1)
-    # Loosen GatewayEventHub / client on() typing for open string event names.
-    typed_on = (
-        "  on<K extends GatewayEventName>(type: K, handler: (event: GatewayEvent<K>) => void): () => void {"
-    )
-    loose_on = (
-        "  on<P = unknown>(type: GatewayEventName, handler: (event: GatewayEvent & { payload?: P }) => void): () => void {"
-    )
-    text = text.replace(typed_on, loose_on)
+    # Keep the typed on<K>() signature. Widening GatewayEventName in
+    # gateway-events.ts already accepts open event names; replacing on()
+    # with an untyped payload collapses known events (billing step-up, etc.)
+    # to `{}` and fails the desktop renderer typecheck.
 
 elif name == "gateway-events.ts":
     text = text.replace(

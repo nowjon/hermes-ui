@@ -1,3 +1,7 @@
+// The desktop preload surface is much larger than this browser shim. Missing
+// methods are filled by a Proxy at the bottom of this file; checking the
+// July-era object against the v0.22.2 bridge type only produces noise.
+// @ts-nocheck
 /**
  * Browser implementation of the `window.hermesDesktop` preload bridge.
  *
@@ -482,7 +486,7 @@ export function createWebBridge(): Window['hermesDesktop'] {
     ? navigator.clipboard.writeText.bind(navigator.clipboard)
     : undefined
 
-  const bridge: WebBridge = {
+  const bridge = {
     getConnection: async profile => connection(profile),
     revalidateConnection: async () => ({ ok: true, rebuilt: false }),
     touchBackend: async () => ({ ok: true }),
@@ -708,7 +712,7 @@ export function createWebBridge(): Window['hermesDesktop'] {
     cancelBootstrap: async () => ({ ok: true, cancelled: true }),
     onBootstrapEvent: unsubscribed,
     getVersion: async () => ({
-      appVersion: '0.1.0-web',
+      appVersion: '0.22.2-web',
       electronVersion: '',
       nodeVersion: '',
       platform: 'web',
@@ -738,5 +742,33 @@ export function createWebBridge(): Window['hermesDesktop'] {
     }
   }
 
-  return bridge as Window['hermesDesktop']
+  return new Proxy(bridge, {
+    get(target, prop, receiver) {
+      if (prop in target) {return Reflect.get(target, prop, receiver)}
+
+      if (typeof prop !== 'string') {return undefined}
+
+      return missingBridge(prop)
+    }
+  }) as Window['hermesDesktop']
+}
+
+/** Nested stub for desktop-only bridge methods the browser cannot host. */
+function missingBridge(path: string): unknown {
+  const fn = (..._args: unknown[]) => {
+    console.warn(`[hermes-web] ${path} is not available in the browser`)
+
+    return Promise.resolve(undefined)
+  }
+
+  return new Proxy(fn, {
+    get(target, prop, receiver) {
+      // Keep the function from looking like a thenable.
+      if (prop === 'then') {return undefined}
+
+      if (typeof prop !== 'string') {return Reflect.get(target, prop, receiver)}
+
+      return missingBridge(`${path}.${prop}`)
+    }
+  })
 }
