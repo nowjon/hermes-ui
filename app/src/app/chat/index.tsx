@@ -434,28 +434,50 @@ export function ChatRuntimeBoundary({
     [expandWindow, olderAvailable, revealRow, returnToLatest, currentMessages, isHistorical, newerAvailable]
   )
 
-  const runtime = useIncrementalExternalStoreRuntime<ThreadMessage>({
-    messageRepository: runtimeMessageRepository,
-    isRunning: !isHistorical && busy,
-    isDisabled: isHistorical,
-    setMessages: isHistorical ? undefined : onThreadMessagesChange,
-    onNew: async () => {
-      // Submission is handled explicitly by ChatBar.
-      // Keeping this no-op avoids duplicate prompt.submit calls.
-    },
-    // Editing stays AVAILABLE on a history page. `isDisabled` above blocks
-    // submit/reload/branch and keeps the page static, but the rail jump is
-    // the only way into that page and it has no in-thread exit — so dropping
-    // `onEdit` left the inline composer unopenable after ANY far rail jump
-    // (the throw "Runtime does not support editing", infectious downward,
-    // healed only by the floating jump button's returnToLatest). `editMessage`
-    // already resolves its target against the live session store
-    // (use-prompt-actions), never the display page, so the edit is correct;
-    // sending one rewinds the live transcript and drops the page.
-    onEdit,
-    onCancel: isHistorical ? undefined : async () => onCancel(),
-    onReload: isHistorical ? undefined : onReload
+  // Stable no-op / cancel wrappers so the adapter object only churns when
+  // transcript/run flags actually move — a fresh `{ onNew: async () => {} }`
+  // every render forced setAdapter even after the repository-shape guard.
+  const onNewRef = useRef(async () => {
+    // Submission is handled explicitly by ChatBar.
+    // Keeping this no-op avoids duplicate prompt.submit calls.
   })
+  const onCancelRef = useRef(onCancel)
+  onCancelRef.current = onCancel
+
+  const cancelAdapter = useCallback(async () => onCancelRef.current(), [])
+
+  const runtimeAdapter = useMemo(
+    () => ({
+      messageRepository: runtimeMessageRepository,
+      isRunning: !isHistorical && busy,
+      isDisabled: isHistorical,
+      setMessages: isHistorical ? undefined : onThreadMessagesChange,
+      onNew: onNewRef.current,
+      // Editing stays AVAILABLE on a history page. `isDisabled` above blocks
+      // submit/reload/branch and keeps the page static, but the rail jump is
+      // the only way into that page and it has no in-thread exit — so dropping
+      // `onEdit` left the inline composer unopenable after ANY far rail jump
+      // (the throw "Runtime does not support editing", infectious downward,
+      // healed only by the floating jump button's returnToLatest). `editMessage`
+      // already resolves its target against the live session store
+      // (use-prompt-actions), never the display page, so the edit is correct;
+      // sending one rewinds the live transcript and drops the page.
+      onEdit,
+      onCancel: isHistorical ? undefined : cancelAdapter,
+      onReload: isHistorical ? undefined : onReload
+    }),
+    [
+      runtimeMessageRepository,
+      isHistorical,
+      busy,
+      onThreadMessagesChange,
+      onEdit,
+      cancelAdapter,
+      onReload
+    ]
+  )
+
+  const runtime = useIncrementalExternalStoreRuntime<ThreadMessage>(runtimeAdapter)
 
   return (
     <ComposerScopeProvider value={composerScope}>
