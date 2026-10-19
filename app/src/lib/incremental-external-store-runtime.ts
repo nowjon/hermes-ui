@@ -45,7 +45,7 @@ const getThreadListAdapter = (store: ExternalStoreAdapter) => store.adapters?.th
  * notifies — and a subscriber that rebuilds the wrapper loops forever
  * (`getSnapshot should be cached` / workspace error boundary).
  *
- * Compare by head + per-row (message, parentId) reference identity instead.
+ * Compare by head + per-row (message, parentId) reference identity.
  */
 export function sameMessageRepository(
   a: ExternalStoreAdapter['messageRepository'],
@@ -65,6 +65,29 @@ export function sameMessageRepository(
 
   return a.messages.every(
     (item, index) => item.message === b.messages[index]?.message && item.parentId === b.messages[index]?.parentId
+  )
+}
+
+/** Same transcript *shape* (ids + parents), ignoring ThreadMessage object identity. */
+export function sameMessageRepositoryShape(
+  a: ExternalStoreAdapter['messageRepository'],
+  b: ExternalStoreAdapter['messageRepository']
+): boolean {
+  if (a === b) {
+    return true
+  }
+
+  if (!a || !b) {
+    return false
+  }
+
+  if (a.headId !== b.headId || a.messages.length !== b.messages.length) {
+    return false
+  }
+
+  return a.messages.every(
+    (item, index) =>
+      item.message.id === b.messages[index]?.message.id && item.parentId === b.messages[index]?.parentId
   )
 }
 
@@ -240,6 +263,31 @@ class IncrementalExternalStoreThreadRuntimeCore extends ExternalStoreThreadRunti
       }
 
       return
+    }
+
+    // Awaiting the first assistant token: store transcript is still user-tail.
+    // ChatMessage → ThreadMessage conversion can mint fresh object identities for
+    // the same ids on every parent render (WeakMap miss when the store rebuilds
+    // row objects). Treating that as a transcript change remints the optimistic
+    // assistant and notifies — infinite getSnapshot loop. Same *ids* + still
+    // user-tail + same isRunning ⇒ keep the existing optimistic placeholder.
+    // Streaming is unaffected: once an assistant row exists, last.role is
+    // assistant and we fall through to the incremental sync below.
+    if (
+      oldStore &&
+      oldStore.isRunning === store.isRunning &&
+      (store.isRunning ?? false) &&
+      sameMessageRepositoryShape(oldStore.messageRepository, store.messageRepository)
+    ) {
+      const last = store.messageRepository.messages.at(-1)?.message
+
+      if (last && last.role !== 'assistant') {
+        if (changed) {
+          self._notifySubscribers()
+        }
+
+        return
+      }
     }
 
     const previousOptimisticId = self._assistantOptimisticId
