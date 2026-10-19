@@ -322,6 +322,25 @@ async function apiFetch<T>(request: HermesApiRequest): Promise<T> {
   return JSON.parse(text) as T
 }
 
+/** Single-gateway web installs expose one synthetic registry source. Bot Mode
+ *  and the plugin SDK treat `kind: 'local'` + a sole source as the
+ *  profile-only routing path (no Electron connection registry). */
+const WEB_CONNECTION_ID = 'local'
+const WEB_CONNECTION_LABEL = 'This gateway'
+
+async function webProfileNames(): Promise<string[]> {
+  try {
+    const data = await apiFetch<{ profiles?: Array<{ name?: string }> }>({ path: '/api/profiles' })
+    const names = (Array.isArray(data?.profiles) ? data.profiles : [])
+      .map(entry => (typeof entry?.name === 'string' ? entry.name.trim() : ''))
+      .filter(Boolean)
+
+    return names.length > 0 ? names : ['default']
+  } catch {
+    return ['default']
+  }
+}
+
 function connection(profile?: string | null): HermesConnection {
   const token = resolveToken()
 
@@ -329,6 +348,9 @@ function connection(profile?: string | null): HermesConnection {
     baseUrl: baseUrl(),
     mode: 'remote',
     source: 'settings',
+    // Sole web source — matches getAgentRoster / getProfileRoutes below so
+    // Bot Mode's host.agents() / profileRoutes() feature detection stays real.
+    connectionId: WEB_CONNECTION_ID,
     // 'oauth' forces the renderer to re-resolve the WS URL through
     // getGatewayWsUrl on every reconnect, which cookie mode needs because
     // tickets are single-use.
@@ -533,6 +555,45 @@ export function createWebBridge(): Window['hermesDesktop'] {
       minimize: noop,
       toggleMaximize: noop,
       close: noop
+    },
+    // Bot Mode calls these through the plugin SDK. The Proxy used to invent
+    // async stubs that resolved to `undefined`, then `roster.sources.length`
+    // crashed and the Bots tab spun on Loading forever.
+    getAgentRoster: async () => {
+      const profiles = await webProfileNames()
+
+      return {
+        agents: profiles.map(profile => ({
+          connectionId: WEB_CONNECTION_ID,
+          connectionKind: 'local' as const,
+          connectionLabel: WEB_CONNECTION_LABEL,
+          profile,
+          handle: profile
+        })),
+        primaryConnectionId: WEB_CONNECTION_ID,
+        sources: [
+          {
+            connectionId: WEB_CONNECTION_ID,
+            label: WEB_CONNECTION_LABEL,
+            kind: 'local' as const,
+            reachable: true
+          }
+        ]
+      }
+    },
+    getProfileRoutes: async (profiles?: string[]) => {
+      const names =
+        Array.isArray(profiles) && profiles.length > 0
+          ? profiles.map(name => String(name || '').trim()).filter(Boolean)
+          : await webProfileNames()
+
+      return names.map(profile => ({
+        connectionId: WEB_CONNECTION_ID,
+        mode: 'local' as const,
+        primary: true as const,
+        profile,
+        targetProfile: profile
+      }))
     },
     getBootProgress: async () => readyBootProgress(),
     getConnectionConfig: async () => toConnectionConfig(loadStoredConnection()),
@@ -760,6 +821,9 @@ export function createWebBridge(): Window['hermesDesktop'] {
 
       if (typeof prop !== 'string') {return undefined}
 
+      // Feature detection (`if (!hermesDesktop.getAgentRoster)`) must see a
+      // real undefined — inventing an async stub that resolves to undefined
+      // crashed Bot Mode (`roster.sources.length`) and similar readers.
       return missingBridge(prop)
     }
   }) as Window['hermesDesktop']
@@ -770,7 +834,9 @@ function missingBridge(path: string): unknown {
   const fn = (..._args: unknown[]) => {
     console.warn(`[hermes-web] ${path} is not available in the browser`)
 
-    return Promise.resolve(undefined)
+    // Reject instead of resolving undefined so `await bridge.fn(); x.foo`
+    // surfaces a clear error rather than a TypeError on the result.
+    return Promise.reject(new Error(`[hermes-web] ${path} is not available in the browser`))
   }
 
   return new Proxy(fn, {
