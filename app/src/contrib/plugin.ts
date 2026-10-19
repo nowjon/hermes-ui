@@ -6,37 +6,41 @@
  * (`<id>:<localId>`), so authors write plain contributions and collisions
  * between plugins are impossible.
  *
- * Bundled plugins live in `src/plugins/<name>/plugin.{js,ts,tsx}` and are
- * discovered by `discoverBundledPlugins()` (contrib/plugins.ts) — no import,
- * no registry edit.
- *
- * Web port notes (vs upstream apps/desktop/src/contrib/plugin.ts):
- *  - `socket` resolves to a no-op disposer. Upstream documents the socket as
- *    "an accelerator over your polling, never a replacement" (it already
- *    no-ops on OAuth remotes), so consumers keep working off their polling
- *    fallback here too.
- *  - `os.notify` is inert: the web notification store has no plugin kind or
- *    per-plugin gating yet, and the door's contract is result-shaped
- *    degradation, never a throw.
- *  - `os.revealPath` always resolves false (no file manager on the web).
+ * Bundled plugins live in `src/plugins/<name>/plugin.tsx` and are discovered
+ * by `discoverBundledPlugins()` (contrib/plugins.ts) — no import, no registry
+ * edit. Runtime-fetched third-party plugins will drive the SAME contract
+ * through the plugin host loader (next phase); this is that seam.
  */
 
-import { pluginRest, type PluginRestOptions } from '@/hermes'
-import { createPluginI18n, type PluginI18n } from '@/i18n'
-import { readKey, writeKey } from '@/lib/storage'
+import type { ReadableAtom } from 'nanostores'
 
+import { pluginRest, type PluginRestOptions, pluginSocket } from '@/hermes'
+import { createPluginI18n, type PluginI18n } from '@/i18n'
+import {
+  listPluginAppActions,
+  type PluginAppActionId,
+  type PluginAppActionInfo,
+  type PluginRunActionResult,
+  runPluginAppAction
+} from '@/lib/keybinds/plugin-actions'
+import { readKey, writeKey } from '@/lib/storage'
+import { dispatchPluginNativeNotification, type PluginNativeNotificationInput } from '@/store/native-notifications'
+import { $petActive } from '@/store/pet'
+import { clearPetMessages, type PetSayOptions, sayPetMessage } from '@/store/pet-plugin-messages'
+
+import { type GatewayEventListener, onGatewayEvent } from './events'
+import { $pluginRecords } from './plugins-store'
 import { registry } from './registry'
+import { type PluginSettingsPage, settingsPageContribution } from './settings-pages'
+
+export type { PluginSettingsPage, PluginSettingsSubpage } from './settings-pages'
 import type { Contribution } from './types'
 
 export type { PluginRestOptions } from '@/hermes'
-
-/** Native-notification payload a plugin may hand to `os.notify`. Kept for
- *  authoring-contract parity with upstream; inert on the web (see above). */
-export interface PluginNativeNotificationInput {
-  title: string
-  body?: string
-  silent?: boolean
-}
+export type { HermesOpenTarget } from '@/lib/hermes-open-target'
+export type { PluginAppActionId, PluginAppActionInfo, PluginRunActionResult } from '@/lib/keybinds/plugin-actions'
+export type { PluginNativeNotificationInput, PluginNotificationAction } from '@/store/native-notifications'
+export type { PetMessageTone, PetSayOptions } from '@/store/pet-plugin-messages'
 
 /** A contribution as a plugin author writes it — provenance + id scoping are
  *  the host's job, so those fields are off-limits here. */
@@ -50,21 +54,58 @@ export interface PluginStorage {
   remove(key: string): void
 }
 
-/** The curated OS door — every way a plugin reaches outside the app window.
- *  Every member resolves a result instead of throwing when the capability
- *  can't apply (plain browser, no shell), so callers branch on the return
- *  value rather than sniffing the bridge. */
+/** The curated OS door — every way a plugin reaches outside the app window,
+ *  in one attributed namespace instead of the raw `window.hermesDesktop`
+ *  bridge. Every member resolves a result instead of throwing when the
+ *  capability can't apply (no Electron shell, older desktop build), so
+ *  callers branch on the return value rather than sniffing the bridge. */
 export interface PluginOs {
-  /** Native OS notification. Inert on the web build — use `host.notify` for
-   *  the in-app toast. */
+  /** Native OS notification (Electron), attributed to this plugin. Gated by
+   *  Settings ▸ Notifications ▸ "Plugin notifications" and fires only while
+   *  the user is away from Hermes — use `host.notify` for the in-app toast.
+   *  Throttled per plugin; reserve it for genuinely notable events.
+   *  Supports `icon`, `activate` (e.g. `hermes://index-network/intent/1`),
+   *  action buttons, and renderer `onActivate` / `onAction` callbacks. */
   notify: (input: PluginNativeNotificationInput) => void
-  /** Open a URL with the default handler. Resolves false when the shell
-   *  can't. */
+  /** Open a URL with the OS default handler (browser, mail client, custom
+   *  schemes like `spotify:`). Resolves false when the shell can't. */
   openExternal: (url: string) => Promise<boolean>
-  /** Reveal a path in the OS file manager. Always false on the web. */
+  /** Reveal a path in the OS file manager (Finder / Explorer). Resolves
+   *  false when unavailable. */
   revealPath: (path: string) => Promise<boolean>
+  /** Native save dialog. Resolves the chosen path, or null on cancel /
+   *  when unavailable. The path is on the BACKEND's filesystem, so hand it
+   *  to a `rest` call rather than trying to write it from the renderer. */
+  pickSavePath: (options?: PluginFileDialogOptions) => Promise<null | string>
+  /** Native open dialog, single file. Resolves the chosen path, or null on
+   *  cancel / when unavailable. */
+  pickOpenPath: (options?: PluginFileDialogOptions) => Promise<null | string>
   /** Write text to the system clipboard. Resolves false when unavailable. */
   writeClipboard: (text: string) => Promise<boolean>
+}
+
+/** The pet door: short lines in the core pet's speech bubble, attributed to
+ *  this plugin, instead of locating the pet in the app DOM and drawing over
+ *  it. The host renders them in the in-window pet and the pop-out overlay;
+ *  they show only while the user has a pet visible. */
+export interface PluginPet {
+  /** Show one plain-text line (no HTML; control characters stripped, capped
+   *  at 120 chars) with this plugin's name as a small label. Lasts `ttlMs`
+   *  (default 6 s, clamped 1–30 s); the same `id` replaces in place. Core
+   *  error / waiting-on-you states keep priority over it. Rate-limited per
+   *  plugin. Returns a disposer that removes the line early. */
+  say: (text: string, options?: PetSayOptions) => () => void
+  /** Remove one line by `id`, or every line this plugin has up. */
+  clear: (id?: string) => void
+  /** True while a pet is installed and shown (in-window or popped out). A
+   *  plugin can fall back to its own chip or pane while this is false. */
+  visible: ReadableAtom<boolean>
+}
+
+export interface PluginFileDialogOptions {
+  defaultPath?: string
+  filters?: Array<{ extensions: string[]; name: string }>
+  title?: string
 }
 
 export interface PluginContext {
@@ -74,21 +115,62 @@ export interface PluginContext {
   register: (c: PluginContribution) => () => void
   /** Register several at once; the returned disposer removes all of them. */
   registerMany: (cs: PluginContribution[]) => () => void
+  /** Add this plugin's page (and optional sub-pages) to Settings ▸ Plugins.
+   *  Removed with the plugin on disable/unload. Feature-detect on older hosts:
+   *  `ctx.registerSettingsPage?.(...)`. */
+  registerSettingsPage: (page: PluginSettingsPage) => () => void
   /** Register an arbitrary cleanup to run on unload/disable — for side effects
    *  that aren't contributions or sockets (store subscriptions, timers). Runs
    *  alongside every other disposer when the plugin deactivates. */
   onDispose: (fn: () => void) => void
+  /** Hear the gateway stream by event type (`'*'` = everything). Tracked like
+   *  every other registration: unload/reload/disable removes the listener, so
+   *  a subscription made after `register()` returns (a timer, a socket
+   *  callback) can never outlive the plugin the way a bare `host.onEvent`
+   *  there would. */
+  onEvent: (type: string, listener: GatewayEventListener) => () => void
+  /** Scoped timers: cleared when the plugin unloads/reloads/disables, so a
+   *  poller cannot outlive the plugin the way a bare `setInterval` does (the
+   *  host never sees a bare global — it is the author's leak). Each returns
+   *  a disposer that cancels early. */
+  setTimeout: (fn: () => void, ms: number) => () => void
+  setInterval: (fn: () => void, ms: number) => () => void
+  /** Scoped `addEventListener` on any target (window, document, a node):
+   *  removed on unload/reload/disable. Returns a disposer. */
+  addEventListener: (
+    target: EventTarget,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: AddEventListenerOptions | boolean
+  ) => () => void
   /** REST to this plugin's own backend namespace (`/api/plugins/<id>`); `path`
    *  is relative ('/board'). The sanctioned door for a plugin that ships a
    *  `plugin_api.py` — profile-aware, namespace-scoped by construction. Use
    *  `host.request` for gateway JSON-RPC. */
   rest: <T>(path: string, opts?: PluginRestOptions) => Promise<T>
-  /** Live twin of `rest`. On the web build this resolves to a no-op disposer —
-   *  treat the socket as an accelerator over your polling, never a
-   *  replacement. */
+  /** Live twin of `rest`: a WebSocket to this plugin's own namespace
+   *  ('/events'), JSON frames to `onMessage`, auto-reconnect, disposer
+   *  returned. Resolves to a no-op on OAuth remotes — treat it as an
+   *  accelerator over your polling, never a replacement. */
   socket: (path: string, onMessage: (data: unknown) => void) => () => void
-  /** The curated OS door (see `PluginOs` for the web degradations). */
+  /** The curated OS door: native notification, open-external, reveal-in-file-
+   *  manager, clipboard — attributed to this plugin, result-shaped (never
+   *  throws for a missing capability). */
   os: PluginOs
+  /** The pet door: lines in the core pet's speech bubble, attributed to this
+   *  plugin and cleared when it unloads. Feature-detect on older hosts:
+   *  `ctx.pet?.say(...)`. */
+  pet: PluginPet
+  /** Run a built-in app action (toggle the browser panel, open Settings,
+   *  focus the composer, …) through the same handler its keyboard shortcut
+   *  and palette entry use, so rebinding or unbinding the shortcut changes
+   *  nothing. Only view / navigation actions are allowed (`listActions()`);
+   *  an unknown or denied id is refused with `{ ok: false, error }` and a
+   *  console warning, never thrown. Feature-detect on older hosts:
+   *  `ctx.runAction?.('view.showBrowser')`. */
+  runAction: (id: PluginAppActionId) => PluginRunActionResult
+  /** The actions `runAction` accepts, with their localized labels. */
+  listActions: () => PluginAppActionInfo[]
   /** Plugin-scoped persistence. */
   storage: PluginStorage
   /** Plugin-scoped i18n: ship + register locale bundles under this plugin,
@@ -104,7 +186,7 @@ export interface HermesPlugin {
   /** One-liner for the settings inventory (what the plugin adds). */
   description?: string
   /** Registers on load when the user hasn't chosen (default true). Set false
-   *  for opt-in plugins: they inventory in Settings ▸ Plugins, off until the
+   *  for opt-in plugins: they inventory in Capabilities ▸ Plugins, off until the
    *  user flips the switch. */
   defaultEnabled?: boolean
   /** Called once at load; wire contributions through `ctx`. */
@@ -133,9 +215,10 @@ function createPluginStorage(pluginId: string): PluginStorage {
   }
 }
 
-// Never throws for a missing capability: every door degrades to a false
-// result the plugin can branch on.
-function createPluginOs(): PluginOs {
+// Never throws for a missing capability: the renderer can outlive an older
+// Electron shell (or run in a plain browser), so every door degrades to a
+// false result the plugin can branch on.
+function createPluginOs(pluginId: string): PluginOs {
   const attempt = async (run: (bridge: NonNullable<typeof window.hermesDesktop>) => Promise<boolean>) => {
     const bridge = typeof window === 'undefined' ? undefined : window.hermesDesktop
 
@@ -150,16 +233,113 @@ function createPluginOs(): PluginOs {
     }
   }
 
+  // Same shape as `attempt`, for the pickers that answer with a path.
+  const attemptPath = async (run: (bridge: NonNullable<typeof window.hermesDesktop>) => Promise<null | string>) => {
+    const bridge = typeof window === 'undefined' ? undefined : window.hermesDesktop
+
+    if (!bridge) {
+      return null
+    }
+
+    try {
+      return await run(bridge)
+    } catch {
+      return null
+    }
+  }
+
   return {
-    notify: () => undefined,
+    notify: input => dispatchPluginNativeNotification(pluginId, input),
     openExternal: url =>
       attempt(async bridge => {
         await bridge.openExternal(url)
 
         return true
       }),
-    revealPath: () => Promise.resolve(false),
-    writeClipboard: text => attempt(async bridge => bridge.writeClipboard(text))
+    pickOpenPath: options =>
+      attemptPath(async bridge => {
+        const picked = await bridge.selectPaths?.({ ...options, multiple: false })
+
+        return picked?.[0] ?? null
+      }),
+    pickSavePath: options => attemptPath(async bridge => (await bridge.selectSavePath?.(options)) ?? null),
+    revealPath: path => attempt(async bridge => (bridge.revealPath ? bridge.revealPath(path) : false)),
+    writeClipboard: text => attempt(bridge => bridge.writeClipboard(text))
+  }
+}
+
+// Lines are attributed by the inventory name the loader published before
+// register() ran; the id is the fallback. Every line this plugin still has up
+// is cleared with it on unload/disable (tracked on first use).
+function createPluginPet(pluginId: string, track: (dispose: () => void) => () => void): PluginPet {
+  let tracked = false
+
+  return {
+    clear: id => clearPetMessages(pluginId, id),
+    say: (text, options) => {
+      if (!tracked) {
+        tracked = true
+        track(() => clearPetMessages(pluginId))
+      }
+
+      return sayPetMessage(pluginId, $pluginRecords.get()[pluginId]?.name ?? pluginId, text, options)
+    },
+    visible: $petActive
+  }
+}
+
+/** Timers and DOM listeners a plugin takes out through `ctx`, retired as ONE
+ *  tracked disposer. A fired timeout drops out of the set on its own, so a
+ *  long-lived plugin firing many one-shots does not accumulate cleanups. */
+function createPluginLifetime(track: (dispose: () => void) => () => void) {
+  const cleanups = new Set<() => void>()
+  let tracked = false
+
+  const scoped = (cleanup: () => void) => {
+    // Registered with the host on first use, so a plugin that never takes a
+    // timer or listener out adds nothing to its disposer list.
+    if (!tracked) {
+      tracked = true
+      track(() => {
+        cleanups.forEach(pending => pending())
+        cleanups.clear()
+      })
+    }
+
+    cleanups.add(cleanup)
+
+    return () => {
+      cleanups.delete(cleanup)
+      cleanup()
+    }
+  }
+
+  return {
+    setTimeout: (fn: () => void, ms: number) => {
+      const clear = () => globalThis.clearTimeout(id)
+
+      const id = globalThis.setTimeout(() => {
+        cleanups.delete(clear)
+        fn()
+      }, ms)
+
+      return scoped(clear)
+    },
+    setInterval: (fn: () => void, ms: number) => {
+      const id = globalThis.setInterval(fn, ms)
+
+      return scoped(() => globalThis.clearInterval(id))
+    },
+    addEventListener: (
+      target: EventTarget,
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: AddEventListenerOptions | boolean
+    ) => {
+      target.addEventListener(type, listener, options)
+
+      return scoped(() => target.removeEventListener(type, listener, options))
+    }
   }
 }
 
@@ -179,10 +359,16 @@ export function createPluginContext(pluginId: string, onDispose?: (dispose: () =
     source,
     register: c => track(registry.register(scope(c))),
     registerMany: cs => track(registry.registerMany(cs.map(scope))),
+    registerSettingsPage: page => track(registry.register(scope(settingsPageContribution(page)))),
     onDispose: fn => void track(fn),
+    onEvent: (type, listener) => track(onGatewayEvent(type, listener)),
+    ...createPluginLifetime(track),
     rest: <T>(path: string, opts?: PluginRestOptions) => pluginRest<T>(pluginId, path, opts),
-    socket: () => track(() => undefined),
-    os: createPluginOs(),
+    socket: (path, onMessage) => track(pluginSocket(pluginId, path, onMessage)),
+    os: createPluginOs(pluginId),
+    pet: createPluginPet(pluginId, track),
+    runAction: id => runPluginAppAction(pluginId, id),
+    listActions: listPluginAppActions,
     storage: createPluginStorage(pluginId),
     i18n: createPluginI18n(pluginId, track)
   }

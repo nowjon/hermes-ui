@@ -27,8 +27,8 @@ Keep local modifications minimal and centralized in `src/web-bridge/` so upstrea
 This is the running watermark for incremental upstream syncs.
 When you sync, always diff upstream `apps/desktop/src` + `apps/shared/src` from the **Last synced commit** below forward, port the web-applicable changes, then bump the watermark.
 
-- **Last synced upstream commit:** `15ab47a6b92643cdd75a081f4784412b16c19cc5` (2026-09-30, hermes-agent v0.21.5+4913 / 2026.9.24).
-- **Last sync date:** 2026-10-05.
+- **Last synced upstream commit:** `d923a5eb487a17c0a68801bba9ef0f56c81040a8` (2026-10-15, Hermes Agent v0.22.2).
+- **Last sync date:** 2026-10-19.
 - **Baseline before this sync:** `56a8e81` (the original extraction).
 
 ### 2026-07-20 - partial sync of the 2026-06-29 -> 2026-07-20 window (merged desktop PRs)
@@ -101,3 +101,17 @@ CI copied protocol files from [`NousResearch/hermes-agent`](https://github.com/N
 CI copied protocol files from [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent) `apps/shared` at `15ab47a6b92643cdd75a081f4784412b16c19cc5` into `shared/src/`, kept web-trimmed `shared/src/index.ts`, and re-applied web patches (stuck-handshake remint + open event-name typing).
 
 **`apps/desktop` / `app/` UI sync remains manual** (see deferred list above).
+
+### 2026-10-19 - desktop renderer re-extract from hermes-agent `d923a5eb` (v0.22.2)
+
+Replaced `app/src` with `apps/desktop/src` at Hermes Agent v0.22.2 (`d923a5eb487a17c0a68801bba9ef0f56c81040a8`), the commit vm-agent is running. `shared/src` is the full `apps/shared/src` barrel (billing included, because the current renderer imports it).
+
+Web-only pieces kept on top of that extract:
+
+- `app/src/web-bridge/` — browser `window.hermesDesktop`. Methods the desktop preload grew since the July extract are answered by a Proxy stub.
+- `app/src/pwa/` and the existing `index.html` shell.
+- `app/electron/` type shims for the few renderer imports that point at Electron modules (`challenge-window`, `machine-profile`, `updater/update-metrics`). Pure modules (`power-save`, `pool-limits`, …) are copied verbatim.
+- Stuck-handshake remint on `JsonRpcGatewayClient.connect()`, widened `GatewayEventName`, and a `pageshow` reconnect next to the desktop focus/visibility listeners.
+- Production typecheck excludes `*.test.ts(x)` and `src/debug/**` (the dev-only `bippy` probe). Vite aliases `@/debug/dev-only` to the noop module.
+
+The July deferred list (tree layout, `@assistant-ui` 0.14, react-router) is included by this extract, not ported file-by-file. Electron packaging, `node-pty`, `simple-git`, `dbus-native`, and `electron-updater` stay out of the web app.

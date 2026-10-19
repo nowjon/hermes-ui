@@ -7,7 +7,7 @@ Workflow: [`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstrea
 ## What it does
 
 1. Shallow-clones `https://github.com/NousResearch/hermes-agent`
-2. Reads the watermark from [`UPSTREAM.md`](UPSTREAM.md) (**Last synced upstream commit**, currently `653bc4f2…`)
+2. Reads the watermark from [`UPSTREAM.md`](UPSTREAM.md) (**Last synced upstream commit**, currently `d923a5eb…`, Hermes Agent v0.22.2)
 3. Compares protocol files `apps/shared/src` → `shared/src`:
    - `json-rpc-channel.ts`
    - `json-rpc-gateway.ts`

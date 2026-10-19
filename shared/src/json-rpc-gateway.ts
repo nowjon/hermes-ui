@@ -80,7 +80,7 @@ export function isGatewayWebSocketUrl(value: unknown): value is string {
 export class GatewayEventHub {
   private readonly handlers = new Map<string, Set<(event: GatewayEvent) => void>>()
 
-  on<P = unknown>(type: GatewayEventName, handler: (event: GatewayEvent & { payload?: P }) => void): () => void {
+  on<K extends GatewayEventName>(type: K, handler: (event: GatewayEvent<K>) => void): () => void {
     let set = this.handlers.get(type)
 
     if (!set) {
@@ -379,7 +379,7 @@ export class JsonRpcGatewayClient {
     }
   }
 
-  on<P = unknown>(type: GatewayEventName, handler: (event: GatewayEvent & { payload?: P }) => void): () => void {
+  on<K extends GatewayEventName>(type: K, handler: (event: GatewayEvent<K>) => void): () => void {
     return this.events.on(type, handler)
   }
 
