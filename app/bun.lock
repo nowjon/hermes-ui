@@ -112,6 +112,11 @@
   "trustedDependencies": [
     "unicode-animations",
   ],
+  "overrides": {
+    "@assistant-ui/core": "0.2.23",
+    "@assistant-ui/store": "0.2.22",
+    "@assistant-ui/tap": "0.9.8",
+  },
   "packages": {
     "@antfu/install-pkg": ["@antfu/install-pkg@2.1.0", "", { "dependencies": { "package-manager-detector": "^1.8.0", "tinyexec": "^1.3.1" } }, "sha512-sdg9NxU3zR4Mnawfbc/x6GB5Wf17WYud5qOuEuxXjaKpYpMkISSJEjItGebXJ2bQ4DIcly4NYH23mtkGJjvKUw=="],
 
@@ -133,7 +138,7 @@
 
     "@assistant-ui/store": ["@assistant-ui/store@0.2.22", "", { "dependencies": { "use-effect-event": "^2.0.3" }, "peerDependencies": { "@assistant-ui/tap": "^0.9.0", "@types/react": "*", "react": "^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-RdUFLOFJ3ZwIoOZYrRvps3OAODwnWoUAuNfqbROKrj5qtlQsIJRqxUNdLTjcf4AimhkjCwOaFacGHHm9lE4qBw=="],
 
-    "@assistant-ui/tap": ["@assistant-ui/tap@0.9.23", "", { "peerDependencies": { "@types/react": "*", "react": "^18 || ^19" }, "optionalPeers": ["@types/react", "react"] }, "sha512-VnWoJLDv8/98YknvgB+Cjy+hwM4+BiW9nZMsKvaPdl3dUhuRdLDOZZs6gvE7x6x40NAeP4Wsq9WBDfmus5k31w=="],
+    "@assistant-ui/tap": ["@assistant-ui/tap@0.9.8", "", { "peerDependencies": { "@types/react": "*", "react": "^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-pajYWHwvsApAyEtK/TDSr2J2O6/fV1M+ZOmmkKM8apoE6JrC6F8IVKCU1b9rMkB0RidM2lrQxFpN9Ujw3mKEGQ=="],
 
     "@audiowave/core": ["@audiowave/core@0.3.1", "", {}, "sha512-KtC2MTWKp6Orkedty3I8IklVBVQ2IFaFWDJ1cz+UsACpX2x1gINwZGTRZT7bw/dx8KazNSMuVK5lm1jL67KQkQ=="],
 
