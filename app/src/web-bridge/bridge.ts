@@ -815,38 +815,9 @@ export function createWebBridge(): Window['hermesDesktop'] {
     }
   }
 
-  return new Proxy(bridge, {
-    get(target, prop, receiver) {
-      if (prop in target) {return Reflect.get(target, prop, receiver)}
-
-      if (typeof prop !== 'string') {return undefined}
-
-      // Feature detection (`if (!hermesDesktop.getAgentRoster)`) must see a
-      // real undefined — inventing an async stub that resolves to undefined
-      // crashed Bot Mode (`roster.sources.length`) and similar readers.
-      return missingBridge(prop)
-    }
-  }) as Window['hermesDesktop']
-}
-
-/** Nested stub for desktop-only bridge methods the browser cannot host. */
-function missingBridge(path: string): unknown {
-  const fn = (..._args: unknown[]) => {
-    console.warn(`[hermes-web] ${path} is not available in the browser`)
-
-    // Reject instead of resolving undefined so `await bridge.fn(); x.foo`
-    // surfaces a clear error rather than a TypeError on the result.
-    return Promise.reject(new Error(`[hermes-web] ${path} is not available in the browser`))
-  }
-
-  return new Proxy(fn, {
-    get(target, prop, receiver) {
-      // Keep the function from looking like a thenable.
-      if (prop === 'then') {return undefined}
-
-      if (typeof prop !== 'string') {return Reflect.get(target, prop, receiver)}
-
-      return missingBridge(`${path}.${prop}`)
-    }
-  })
+  // Do NOT invent missing methods. Call sites feature-detect with
+  // `if (!hermesDesktop.screenshot)` / `?.onFoo`; a Proxy stub made those
+  // truthy, then returned a Promise from `onStatus`/`onRequest` so effect
+  // cleanups threw "l is not a function" and blanked the workspace pane.
+  return bridge as Window['hermesDesktop']
 }
