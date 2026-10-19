@@ -337,6 +337,8 @@ function connection(profile?: string | null): HermesConnection {
     wsUrl: token ? buildTokenWsUrl(token) : '',
     logs: [],
     isFullscreen: false,
+    // Browser chrome owns the real window; never paint WSLg caption buttons.
+    customWindowControls: false,
     nativeOverlayWidth: 0,
     windowButtonPosition: null,
     ...(profile ? { profile } : {})
@@ -521,6 +523,16 @@ export function createWebBridge(): Window['hermesDesktop'] {
       control: noop,
       onState: unsubscribed,
       onControl: unsubscribed
+    },
+    // Must be a real object with custom:false. The missing-method Proxy below
+    // invents truthy nested properties, and wiring.tsx treats
+    // windowControls.custom as "draw WSLg min/max/close" — which covers the
+    // titlebar tools in hermesweb.
+    windowControls: {
+      custom: false,
+      minimize: noop,
+      toggleMaximize: noop,
+      close: noop
     },
     getBootProgress: async () => readyBootProgress(),
     getConnectionConfig: async () => toConnectionConfig(loadStoredConnection()),
