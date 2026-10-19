@@ -343,6 +343,7 @@ async function webProfileNames(): Promise<string[]> {
 
 function connection(profile?: string | null): HermesConnection {
   const token = resolveToken()
+  const scoped = Boolean(profile)
 
   return {
     baseUrl: baseUrl(),
@@ -363,7 +364,13 @@ function connection(profile?: string | null): HermesConnection {
     customWindowControls: false,
     nativeOverlayWidth: 0,
     windowButtonPosition: null,
-    ...(profile ? { profile } : {})
+    // hermes-serve multiplexes every profile on one gateway process. Without
+    // sharedPrimary, Bot Mode treats connectionId "local" as a registry
+    // secondary and demands getConnectionFor — then fails open with
+    // "cannot dial registry connections".
+    ...(scoped
+      ? { profile: profile as string, registryScoped: true, sharedPrimary: true }
+      : {})
   }
 }
 
@@ -510,20 +517,50 @@ export function createWebBridge(): Window['hermesDesktop'] {
     ? navigator.clipboard.writeText.bind(navigator.clipboard)
     : undefined
 
+  const resolveGatewayWsUrl = async () => {
+    // One origin for both the ticket mint and the socket connect, so the dev
+    // proxy routes them to the same gateway (a mismatch would 4403).
+    const origin = activeUpstreamOrigin()
+    const token = resolveToken()
+
+    if (token) {return withGatewayRoute(buildTokenWsUrl(token), origin)}
+    const ticket = await mintWsTicket(origin)
+
+    return withGatewayRoute(`${wsBaseUrl()}/api/ws?ticket=${encodeURIComponent(ticket)}`, origin)
+  }
+
   const bridge = {
     getConnection: async profile => connection(profile),
+    // Explicit `local` is a registry source (gateway.ts); Bot Mode dials
+    // (connectionId, profile) through this door. hermesweb has one gateway, so
+    // every local profile rides the primary socket (sharedPrimary).
+    getConnectionFor: async ({ connectionId, profile } = {}) => {
+      const id = String(connectionId ?? '').trim()
+
+      if (id && id !== WEB_CONNECTION_ID) {
+        throw new Error(`No connection with id "${id}"`)
+      }
+
+      const name = String(profile ?? '').trim() || null
+
+      return {
+        ...connection(name),
+        registryScoped: true,
+        sharedPrimary: true,
+        ...(name ? { profile: name } : {})
+      }
+    },
     revalidateConnection: async () => ({ ok: true, rebuilt: false }),
     touchBackend: async () => ({ ok: true }),
-    getGatewayWsUrl: async () => {
-      // One origin for both the ticket mint and the socket connect, so the dev
-      // proxy routes them to the same gateway (a mismatch would 4403).
-      const origin = activeUpstreamOrigin()
-      const token = resolveToken()
+    getGatewayWsUrl: async () => resolveGatewayWsUrl(),
+    getGatewayWsUrlFor: async ({ connectionId } = {}) => {
+      const id = String(connectionId ?? '').trim()
 
-      if (token) {return withGatewayRoute(buildTokenWsUrl(token), origin)}
-      const ticket = await mintWsTicket(origin)
+      if (id && id !== WEB_CONNECTION_ID) {
+        throw new Error(`No connection with id "${id}"`)
+      }
 
-      return withGatewayRoute(`${wsBaseUrl()}/api/ws?ticket=${encodeURIComponent(ticket)}`, origin)
+      return resolveGatewayWsUrl()
     },
     openSessionWindow: async sessionId => {
       const opened = window.open(`${window.location.pathname}#/${sessionId}`, '_blank', 'noopener')
