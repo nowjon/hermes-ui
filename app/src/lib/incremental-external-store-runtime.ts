@@ -36,6 +36,39 @@ const shallowEqual = (a: object, b: object): boolean => {
 const getThreadListAdapter = (store: ExternalStoreAdapter) => store.adapters?.threadList ?? {}
 
 /**
+ * ChatRuntimeBoundary rebuilds the adapter literal every render; the exported
+ * `{ headId, messages }` wrapper can also churn when an intermediate memo
+ * misses even though every ThreadMessage identity is unchanged (the conversion
+ * cache in useRuntimeMessageRepository keeps those stable). Identity-only
+ * comparison then treats a no-op wrapper swap as a transcript change, which
+ * while `isRunning` + user-tail regenerates the optimistic assistant id and
+ * notifies — and a subscriber that rebuilds the wrapper loops forever
+ * (`getSnapshot should be cached` / workspace error boundary).
+ *
+ * Compare by head + per-row (message, parentId) reference identity instead.
+ */
+export function sameMessageRepository(
+  a: ExternalStoreAdapter['messageRepository'],
+  b: ExternalStoreAdapter['messageRepository']
+): boolean {
+  if (a === b) {
+    return true
+  }
+
+  if (!a || !b) {
+    return false
+  }
+
+  if (a.headId !== b.headId || a.messages.length !== b.messages.length) {
+    return false
+  }
+
+  return a.messages.every(
+    (item, index) => item.message === b.messages[index]?.message && item.parentId === b.messages[index]?.parentId
+  )
+}
+
+/**
  * Write only the items whose (message, parentId) pair actually moved.
  *
  * `useRuntimeMessageRepository` caches normalized ThreadMessages by source
@@ -194,7 +227,11 @@ class IncrementalExternalStoreThreadRuntimeCore extends ExternalStoreThreadRunti
       changed = true
     }
 
-    if (oldStore && oldStore.isRunning === store.isRunning && oldStore.messageRepository === store.messageRepository) {
+    if (
+      oldStore &&
+      oldStore.isRunning === store.isRunning &&
+      sameMessageRepository(oldStore.messageRepository, store.messageRepository)
+    ) {
       // Same transcript, same run state: notify only if extras/suggestions/
       // capabilities actually moved. A silent no-op swap here is what breaks
       // the render feedback loop — see the render-loop guard test.
@@ -205,8 +242,17 @@ class IncrementalExternalStoreThreadRuntimeCore extends ExternalStoreThreadRunti
       return
     }
 
-    if (self._assistantOptimisticId) {
-      this.repository.deleteMessage(self._assistantOptimisticId)
+    const previousOptimisticId = self._assistantOptimisticId
+    let previousOptimisticParent: string | null = null
+
+    if (previousOptimisticId) {
+      try {
+        previousOptimisticParent = this.repository.getMessage(previousOptimisticId).parentId
+      } catch {
+        previousOptimisticParent = null
+      }
+
+      this.repository.deleteMessage(previousOptimisticId)
       self._assistantOptimisticId = null
     }
 
@@ -222,10 +268,16 @@ class IncrementalExternalStoreThreadRuntimeCore extends ExternalStoreThreadRunti
 
     // metadata.isOptimistic keeps this placeholder ephemeral: core evicts
     // off-branch optimistic messages on head moves and omits them from export().
+    // Reuse the prior optimistic id when the parent is unchanged so a wrapper-
+    // only repository churn (caught above) is not the only defense — a real
+    // resync that still awaits the first assistant token must not mint a new
+    // id every time (that alone invalidates every message getSnapshot).
     if (hasUpcomingMessage(isRunning, messages)) {
-      const optimisticId = generateId()
+      const parentId = messages.at(-1)?.id ?? null
+      const optimisticId =
+        previousOptimisticId && previousOptimisticParent === parentId ? previousOptimisticId : generateId()
       this.repository.addOrUpdateMessage(
-        messages.at(-1)?.id ?? null,
+        parentId,
         fromThreadMessageLike({ role: 'assistant', content: [], metadata: { isOptimistic: true } }, optimisticId, {
           type: 'running'
         })
