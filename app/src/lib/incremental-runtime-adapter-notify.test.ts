@@ -259,4 +259,38 @@ describe('IncrementalExternalStoreThreadRuntimeCore adapter swap notifications',
 
     expect(depth).toBeLessThanOrEqual(1)
   })
+
+  it('idle reminted ThreadMessage objects (same ids) must not recurse unboundedly', () => {
+    const core = new IncrementalExternalStoreRuntimeCore(
+      adapterWith(
+        repositoryOf([fromThreadMessageLike({ role: 'user', content: [{ type: 'text', text: 'hi' }] }, 'u1', STATUS)])
+      )
+    )
+    const thread = core.threads.getMainThreadRuntimeCore()
+
+    let depth = 0
+    thread.subscribe(() => {
+      depth += 1
+
+      if (depth > 25) {
+        throw new Error('Maximum update depth exceeded (simulated): idle reminted identity churn')
+      }
+
+      core.setAdapter(
+        adapterWith(
+          repositoryOf([
+            fromThreadMessageLike({ role: 'user', content: [{ type: 'text', text: 'hi' }] }, 'u1', STATUS)
+          ])
+        )
+      )
+    })
+
+    core.setAdapter(
+      adapterWith(
+        repositoryOf([fromThreadMessageLike({ role: 'user', content: [{ type: 'text', text: 'hi' }] }, 'u1', STATUS)])
+      )
+    )
+
+    expect(depth).toBeLessThanOrEqual(1)
+  })
 })
