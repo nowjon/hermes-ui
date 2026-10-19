@@ -265,23 +265,21 @@ class IncrementalExternalStoreThreadRuntimeCore extends ExternalStoreThreadRunti
       return
     }
 
-    // Awaiting the first assistant token: store transcript is still user-tail.
-    // ChatMessage → ThreadMessage conversion can mint fresh object identities for
-    // the same ids on every parent render (WeakMap miss when the store rebuilds
-    // row objects). Treating that as a transcript change remints the optimistic
-    // assistant and notifies — infinite getSnapshot loop. Same *ids* + still
-    // user-tail + same isRunning ⇒ keep the existing optimistic placeholder.
-    // Streaming is unaffected: once an assistant row exists, last.role is
-    // assistant and we fall through to the incremental sync below.
+    // Same transcript *ids* with reminted ThreadMessage objects (WeakMap miss
+    // when the session store rebuilds ChatMessage rows). Identity-only equality
+    // is false, so without this guard every parent render takes the full path,
+    // remints the optimistic assistant while awaiting, and notifies — infinite
+    // getSnapshot loop (workspace error boundary). Skip unless we are actively
+    // streaming an assistant tail (same ids, new refs, content growing).
     if (
       oldStore &&
       oldStore.isRunning === store.isRunning &&
-      (store.isRunning ?? false) &&
       sameMessageRepositoryShape(oldStore.messageRepository, store.messageRepository)
     ) {
       const last = store.messageRepository.messages.at(-1)?.message
+      const streamingAssistant = Boolean(store.isRunning) && last?.role === 'assistant'
 
-      if (last && last.role !== 'assistant') {
+      if (!streamingAssistant) {
         if (changed) {
           self._notifySubscribers()
         }
