@@ -84,17 +84,64 @@ export function sharedMetricsOfferPending(consent: SharedMetricsConsent | null):
   return consent?.decided === false
 }
 
+/**
+ * When the install is a single local gateway with many profiles (hermesweb /
+ * multiplex_profiles), mirror the answer onto every sibling profile. Consent
+ * lives per profile's config.yaml — declining only on the focused profile left
+ * Brokkr/Demeter/… re-asking the strip on the next bot open.
+ */
+async function mirrorConsentToSiblingLocalProfiles(
+  gateway: SharedMetricsRequester,
+  focusedProfile: string,
+  flags: { enabled: boolean; send: boolean }
+): Promise<void> {
+  const roster = await window.hermesDesktop?.getAgentRoster?.().catch(() => null)
+  const sources = roster?.sources
+  const soleLocal =
+    Array.isArray(sources) && sources.length === 1 && (sources[0] as { kind?: string }).kind === 'local'
+
+  if (!soleLocal || !Array.isArray(roster?.agents)) {
+    return
+  }
+
+  const focused = focusedProfile === 'custom' ? '' : focusedProfile
+  const names = [
+    ...new Set(
+      roster.agents
+        .map(agent => String((agent as { profile?: string }).profile || '').trim())
+        .filter(name => name && name !== 'custom' && name !== focused)
+    )
+  ]
+
+  await Promise.all(
+    names.map(name =>
+      saveSharedMetricsConsent(sharedMetricsProfileRequester(gateway, name), flags, { firstRun: true }).catch(
+        () => null
+      )
+    )
+  )
+}
+
 /** Record a first-run answer; the strip and the dialog retire as soon as the backend reports it decided. */
 export async function answerSharedMetricsOffer(
   request: SharedMetricsRequester,
-  choice: SharedMetricsChoice
+  choice: SharedMetricsChoice,
+  {
+    mirrorFromGateway,
+    focusedProfile
+  }: { focusedProfile?: string; mirrorFromGateway?: SharedMetricsRequester } = {}
 ): Promise<void> {
-  const consent = await saveSharedMetricsConsent(request, SHARED_METRICS_CHOICES[choice], { firstRun: true })
+  const flags = SHARED_METRICS_CHOICES[choice]
+  const consent = await saveSharedMetricsConsent(request, flags, { firstRun: true })
 
   if (consent) {
     // Gate first: the consent answer is itself a first-run step, counted only when it opted in.
     setDesktopMetricsGate(consent.enabled ? 'on' : 'off')
     recordOnboarding('consent', 'completed')
+  }
+
+  if (mirrorFromGateway && focusedProfile) {
+    await mirrorConsentToSiblingLocalProfiles(mirrorFromGateway, focusedProfile, flags)
   }
 
   $sharedMetricsConsent.set(consent)
