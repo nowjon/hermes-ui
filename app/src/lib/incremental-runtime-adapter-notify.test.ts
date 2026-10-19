@@ -168,3 +168,55 @@ describe('IncrementalExternalStoreThreadRuntimeCore adapter swap notifications',
     expect(depth).toBe(0)
   })
 })
+
+  it('isRunning + user-tail: identical adapters stay silent after the first apply', () => {
+    const user = fromThreadMessageLike(
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      'u1',
+      STATUS
+    )
+    const repo = repositoryOf([user])
+    const core = new IncrementalExternalStoreRuntimeCore(adapterWith(repo, { isRunning: true }))
+    const thread = core.threads.getMainThreadRuntimeCore()
+
+    let notifications = 0
+    thread.subscribe(() => {
+      notifications += 1
+    })
+
+    notifications = 0
+
+    for (let render = 0; render < 8; render += 1) {
+      core.setAdapter(adapterWith(repo, { isRunning: true }))
+    }
+
+    expect(notifications).toBe(0)
+  })
+
+  it('isRunning + user-tail: fresh repository objects with same ids must not recurse unboundedly', () => {
+    const user = fromThreadMessageLike(
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      'u1',
+      STATUS
+    )
+    const core = new IncrementalExternalStoreRuntimeCore(adapterWith(repositoryOf([user]), { isRunning: true }))
+    const thread = core.threads.getMainThreadRuntimeCore()
+
+    let depth = 0
+    thread.subscribe(() => {
+      depth += 1
+
+      if (depth > 25) {
+        throw new Error('Maximum update depth exceeded (simulated): optimistic regen on fresh repos')
+      }
+
+      // Parent re-rendered and rebuilt the exported repository object (same message ids).
+      core.setAdapter(adapterWith(repositoryOf([user]), { isRunning: true }))
+    })
+
+    core.setAdapter(adapterWith(repositoryOf([user]), { isRunning: true }))
+
+    // Ideal: depth 0 or 1. Today this may explode if optimistic ids churn notifies every time.
+    expect(depth).toBeLessThanOrEqual(1)
+  })
+
