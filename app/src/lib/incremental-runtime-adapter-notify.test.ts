@@ -26,11 +26,11 @@
  * for observable state changes, not for object-identity churn of the adapter
  * literal — the render loop is impossible once no-op swaps are silent.
  */
-import { fromThreadMessageLike, getAutoStatus } from '@assistant-ui/core/internal'
+import { AssistantRuntimeImpl, fromThreadMessageLike, getAutoStatus } from '@assistant-ui/core/internal'
 import type { ExportedMessageRepository, ExternalStoreAdapter, ThreadMessage } from '@assistant-ui/react'
 import { describe, expect, it } from 'vitest'
 
-import { IncrementalExternalStoreRuntimeCore } from './incremental-external-store-runtime'
+import { IncrementalExternalStoreRuntimeCore, stabilizeRuntimeSnapshots } from './incremental-external-store-runtime'
 
 const STATUS = getAutoStatus(false, false, false, false, undefined)
 
@@ -292,5 +292,17 @@ describe('IncrementalExternalStoreThreadRuntimeCore adapter swap notifications',
     )
 
     expect(depth).toBeLessThanOrEqual(1)
+  })
+
+  it('caches runtime.threads.getState() and composer.getState() snapshots across repeated reads', () => {
+    const core = new IncrementalExternalStoreRuntimeCore(adapterWith(repositoryOf([message('a', 'one')])))
+    const runtime = stabilizeRuntimeSnapshots(new AssistantRuntimeImpl(core))
+
+    expect(Object.is(runtime.threads.getState(), runtime.threads.getState())).toBe(true)
+    expect(Object.is(runtime.threads.main.composer.getState(), runtime.threads.main.composer.getState())).toBe(true)
+
+    const messageRuntime = runtime.threads.main.getMessageById('a')
+
+    expect(Object.is(messageRuntime.composer.getState(), messageRuntime.composer.getState())).toBe(true)
   })
 })

@@ -355,6 +355,76 @@ export class IncrementalExternalStoreRuntimeCore extends BaseAssistantRuntimeCor
   }
 }
 
+function memoizeSnapshot<T extends object>(getSnapshot: () => T): () => T {
+  let cached: T | undefined
+
+  return () => {
+    const next = getSnapshot()
+
+    if (cached !== undefined && shallowEqual(cached, next)) {
+      return cached
+    }
+
+    cached = next
+
+    return next
+  }
+}
+
+function stabilizeThreadRuntime(thread: AssistantRuntime['thread']): AssistantRuntime['thread'] {
+  thread.composer.getState = memoizeSnapshot(thread.composer.getState.bind(thread.composer))
+
+  const rawGetMessageById = thread.getMessageById.bind(thread)
+  thread.getMessageById = (messageId: string) => {
+    const messageRuntime = rawGetMessageById(messageId)
+    messageRuntime.composer.getState = memoizeSnapshot(
+      messageRuntime.composer.getState.bind(messageRuntime.composer)
+    )
+
+    return messageRuntime
+  }
+
+  const rawGetMessageByIndex = thread.getMessageByIndex.bind(thread)
+  thread.getMessageByIndex = (idx: number) => {
+    const messageRuntime = rawGetMessageByIndex(idx)
+    messageRuntime.composer.getState = memoizeSnapshot(
+      messageRuntime.composer.getState.bind(messageRuntime.composer)
+    )
+
+    return messageRuntime
+  }
+
+  return thread
+}
+
+/**
+ * `@assistant-ui/core` 0.2.23's `ThreadListRuntimeImpl` constructs a
+ * `LazyMemoizeSubject` (`stateBinding`) for `_getState`, but its `subscribe`
+ * method delegates directly to `_core.subscribe(callback)` instead of
+ * `stateBinding.subscribe(callback)`. Because `stateBinding.isConnected` stays
+ * permanently `false`, `runtime.threads.getState()` allocates and returns a
+ * brand-new `{ mainThreadId, ... }` object on every call. Likewise,
+ * `ThreadComposerRuntimeImpl` and `EditComposerRuntimeImpl` use
+ * `LazyMemoizeSubject` without `shallowEqual`, returning fresh frozen objects
+ * before `subscribe` connects and on every thread notification.
+ *
+ * `@assistant-ui/tap` >= 0.9.20 checks `Object.is(value, getSnapshot())` in a
+ * post-commit `useEffect(..., [subscribe, value, getSnapshot])` and throws
+ * "Maximum update depth exceeded. The result of getSnapshot should be cached
+ * to avoid an infinite loop." after 50 consecutive mismatches, crashing the
+ * workspace error boundary when a message is sent. Memoizing these snapshots
+ * by shallow equality guarantees referential stability across reads.
+ */
+export function stabilizeRuntimeSnapshots(assistantRuntime: AssistantRuntime): AssistantRuntime {
+  assistantRuntime.threads.getState = memoizeSnapshot(assistantRuntime.threads.getState.bind(assistantRuntime.threads))
+  stabilizeThreadRuntime(assistantRuntime.threads.main)
+
+  const rawGetById = assistantRuntime.threads.getById.bind(assistantRuntime.threads)
+  assistantRuntime.threads.getById = (threadId: string) => stabilizeThreadRuntime(rawGetById(threadId))
+
+  return assistantRuntime
+}
+
 export function useIncrementalExternalStoreRuntime<T extends ThreadMessage>(
   store: ExternalStoreAdapter<T>
 ): AssistantRuntime {
@@ -378,5 +448,5 @@ export function useIncrementalExternalStoreRuntime<T extends ThreadMessage>(
     return runtime.registerModelContextProvider(modelContext)
   }, [modelContext, runtime])
 
-  return useMemo(() => new AssistantRuntimeImpl(runtime), [runtime])
+  return useMemo(() => stabilizeRuntimeSnapshots(new AssistantRuntimeImpl(runtime)), [runtime])
 }

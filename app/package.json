@@ -124,5 +124,11 @@
   },
   "trustedDependencies": [
     "unicode-animations"
-  ]
+  ],
+  "comment:overrides": "Pin the @assistant-ui family to the exact versions the upstream monorepo lockfile resolved (hermes-agent d923a5eb). The caret ranges otherwise let tap float to 0.9.23, whose post-commit getSnapshot loop guard trips on @assistant-ui/core 0.2.23's uncached ThreadListRuntimeImpl.getState().",
+  "overrides": {
+    "@assistant-ui/core": "0.2.23",
+    "@assistant-ui/store": "0.2.22",
+    "@assistant-ui/tap": "0.9.8"
+  }
 }
