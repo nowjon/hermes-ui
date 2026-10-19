@@ -27,7 +27,7 @@ Keep local modifications minimal and centralized in `src/web-bridge/` so upstrea
 This is the running watermark for incremental upstream syncs.
 When you sync, always diff upstream `apps/desktop/src` + `apps/shared/src` from the **Last synced commit** below forward, port the web-applicable changes, then bump the watermark.
 
-- **Last synced upstream commit:** `d923a5eb487a17c0a68801bba9ef0f56c81040a8` (2026-10-15, Hermes Agent v0.22.2).
+- **Last synced upstream commit:** `c0015464f0f40d52c5702a84cf58e70361f4a04c` (2026-10-15, Hermes Agent v0.22.2).
 - **Last sync date:** 2026-10-19.
 - **Baseline before this sync:** `56a8e81` (the original extraction).
 
@@ -115,3 +115,9 @@ Web-only pieces kept on top of that extract:
 - Production typecheck excludes `*.test.ts(x)` and `src/debug/**` (the dev-only `bippy` probe). Vite aliases `@/debug/dev-only` to the noop module.
 
 The July deferred list (tree layout, `@assistant-ui` 0.14, react-router) is included by this extract, not ported file-by-file. Electron packaging, `node-pty`, `simple-git`, `dbus-native`, and `electron-updater` stay out of the web app.
+
+### 2026-10-19 - automated shared protocol sync from hermes-agent `c0015464`
+
+CI copied protocol files from [`NousResearch/hermes-agent`](https://github.com/NousResearch/hermes-agent) `apps/shared` at `c0015464f0f40d52c5702a84cf58e70361f4a04c` into `shared/src/`, kept web-trimmed `shared/src/index.ts`, and re-applied web patches (stuck-handshake remint + open event-name typing).
+
+**`apps/desktop` / `app/` UI sync remains manual** (see deferred list above).
